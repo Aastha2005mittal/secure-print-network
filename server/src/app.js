@@ -4,6 +4,7 @@ const db = require('./db');
 const cors = require("cors");
 const uploadRoutes = require("./routes/uploadRoutes");
 const adminRoutes = require("./routes/admin");
+const shopRoutes = require("./routes/shopRoutes");
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use(express.json());
 // Upload routes
 app.use("/upload", uploadRoutes);
 app.use("/admin", adminRoutes);
+app.use("/shop", shopRoutes);
 
 // Test DB query
 db.query("SHOW TABLES", (err, results) => {
