@@ -1,12 +1,14 @@
 require('dotenv').config();
 const express = require("express");
 const db = require('./db'); 
+const cors = require("cors");
 const uploadRoutes = require("./routes/uploadRoutes");
 const adminRoutes = require("./routes/admin");
 
 const app = express();
 
 // Middleware to parse JSON
+app.use(cors()); 
 app.use(express.json());
 
 // Upload routes
