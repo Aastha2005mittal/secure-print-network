@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require("express");
 const db = require('./db'); 
 const uploadRoutes = require("./routes/uploadRoutes");
+const adminRoutes = require("./routes/admin");
 
 const app = express();
 
@@ -10,6 +11,7 @@ app.use(express.json());
 
 // Upload routes
 app.use("/upload", uploadRoutes);
+app.use("/admin", adminRoutes);
 
 // Test DB query
 db.query("SHOW TABLES", (err, results) => {
