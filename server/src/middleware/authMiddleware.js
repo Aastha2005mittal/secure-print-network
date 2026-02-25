@@ -5,13 +5,14 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 module.exports = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
 
-  if (!token) return res.status(401).json({ error: "Access denied" });
+  if (!token)
+    return res.status(401).json({ message: "Access denied" });
 
   try {
     const verified = jwt.verify(token, JWT_SECRET);
-    req.admin = verified;
+    req.user = verified; // now works for both admin and shop
     next();
   } catch (err) {
-    res.status(400).json({ error: "Invalid token" });
+    res.status(400).json({ message: "Invalid token" });
   }
 };

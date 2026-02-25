@@ -4,6 +4,8 @@ const multer = require("multer");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
 const db = require("../db"); // create db.js for MySQL connection
+const { encryptFile } = require("../utils/encryption");
+const fs = require("fs");
 
 // Multer config
 const storage = multer.diskStorage({
@@ -29,22 +31,34 @@ const upload = multer({
 });
 
 // Upload endpoint
-router.post("/:shopId", upload.single("file"), (req, res) => {
-  const shopId = req.params.shopId;
-  if (!req.file) return res.status(400).send("No file uploaded");
+router.post("/", upload.single("file"), async (req, res) => {
+  try {
+    const originalPath = req.file.path;              // uploads/abc123
+    const encryptedPath = originalPath + ".enc";     // uploads/abc123.enc
 
-  const fileName = req.file.originalname;
-  const filePath = req.file.path;
-  const uploadId = uuidv4();
+    // Encrypt the file
+    await encryptFile(originalPath, encryptedPath);
 
-  const sql = "INSERT INTO uploads (uploadId, shopId, fileName, filePath) VALUES (?, ?, ?, ?)";
-  db.query(sql, [uploadId, shopId, fileName, filePath], (err, result) => {
-    if (err) {
-  console.error("DB ERROR:", err);
-  return res.status(500).json({ error: err.message });
+    // Delete original unencrypted file
+   if (fs.existsSync(originalPath)) {
+  fs.unlinkSync(originalPath);
 }
-    res.status(200).json({ message: "File uploaded successfully", uploadId });
-  });
+
+    // Save encryptedPath in DB instead of originalPath
+    const filePath = encryptedPath;
+
+    // Example DB insert (modify according to your DB structure)
+    // db.query("INSERT INTO files (file_path) VALUES (?)", [filePath]);
+
+    res.status(200).json({
+      message: "File uploaded & encrypted successfully",
+      filePath
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Upload failed" });
+  }
 });
 
 module.exports = router;

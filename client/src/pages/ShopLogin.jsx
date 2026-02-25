@@ -12,10 +12,14 @@ function ShopLogin() {
         e.preventDefault(); // VERY IMPORTANT
 
         try {
-           const res = await axios.post("http://localhost:5000/shop/login", {
+         const res = await axios.post("http://localhost:5000/shop/login", {
     shopId,
     password,
 });
+
+localStorage.setItem("token", res.data.token);
+
+navigate(`/dashboard/${res.data.shopId}`);
 
             navigate(`/dashboard/${res.data.shopId}`);
         } catch (err) {

@@ -11,8 +11,16 @@ function ShopDashboard() {
     useEffect(() => {
         const fetchFiles = async () => {
             try {
-                const res = await API.get(`/shop/${shopId}/uploads`);
-                setFiles(res.data.files);
+                const token = localStorage.getItem("token");
+
+                const res = await API.get(
+                    `/shop/${shopId}/uploads`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    }
+                );
             } catch (error) {
                 console.error("Error fetching files:", error);
             } finally {
