@@ -11,7 +11,10 @@ router.post("/create", async (req, res) => {
 
   const sql = "INSERT INTO shops (shopId, shopName, qrCode, password) VALUES (?, ?, ?, ?)";
   db.query(sql, [shopId, shopName, qrCodePath, password || null], (err, result) => {
-    if (err) return res.status(500).send("Database error");
+if (err) {
+  console.error("DB ERROR:", err);
+  return res.status(500).json({ error: err.message });
+}
     res.status(200).json({ message: "Shop created", shopId, qrCodePath });
   });
 });

@@ -39,7 +39,10 @@ router.post("/:shopId", upload.single("file"), (req, res) => {
 
   const sql = "INSERT INTO uploads (uploadId, shopId, fileName, filePath) VALUES (?, ?, ?, ?)";
   db.query(sql, [uploadId, shopId, fileName, filePath], (err, result) => {
-    if (err) return res.status(500).send("Database error");
+    if (err) {
+  console.error("DB ERROR:", err);
+  return res.status(500).json({ error: err.message });
+}
     res.status(200).json({ message: "File uploaded successfully", uploadId });
   });
 });

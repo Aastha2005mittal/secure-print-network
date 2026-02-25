@@ -3,10 +3,10 @@ const express = require("express");
 const db = require('./db'); 
 const cors = require("cors");
 const uploadRoutes = require("./routes/uploadRoutes");
-const adminRoutes = require("./routes/admin");
 const shopRoutes = require("./routes/shopRoutes");
 const startCleanupJob = require("./services/cleanupService");
 const authRoutes = require("./routes/authRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 
@@ -15,9 +15,11 @@ app.use(cors());
 app.use(express.json());
 
 // Upload routes
+app.use("/uploads", express.static("uploads"));
+app.use("/api/files", require("./routes/fileRoutes"));
 app.use("/upload", uploadRoutes);
-app.use("/admin", adminRoutes);
 app.use("/shop", shopRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 
 // Test DB query

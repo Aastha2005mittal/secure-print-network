@@ -1,3 +1,4 @@
+import React from "react";
 import { useParams } from "react-router-dom";
 import { useState } from "react";
 import API from "../services/api";
@@ -27,13 +28,10 @@ function UploadPage() {
     }
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", file); 
 
     try {
-      const res = await API.post(`/upload/${shopId}`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
+      const res = await API.post(`/upload/${shopId}`, formData);
       setMessage("File uploaded successfully ✅");
       setFile(null);
     } catch (error) {
