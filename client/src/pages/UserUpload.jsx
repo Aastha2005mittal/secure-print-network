@@ -11,7 +11,13 @@ function UserUpload() {
         const formData = new FormData();
         formData.append("file", file);
 
-        await axios.post(`http://localhost:5000/upload`, formData);
+        await axios.post(
+  `http://localhost:5000/api/upload/${shopId}`,
+  formData,
+  {
+    headers: { "Content-Type": "multipart/form-data" },
+  }
+);
 
         alert("File uploaded successfully!");
     };

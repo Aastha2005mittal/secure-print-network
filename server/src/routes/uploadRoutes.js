@@ -3,11 +3,11 @@ const router = express.Router();
 const multer = require("multer");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
-const db = require("../db"); // create db.js for MySQL connection
+const db = require("../db");
 const { encryptFile } = require("../utils/encryption");
 const fs = require("fs");
 
-// Multer config
+// ================= MULTER CONFIG =================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
@@ -20,7 +20,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (file.mimetype === "application/pdf") {
       cb(null, true);
@@ -30,29 +30,48 @@ const upload = multer({
   },
 });
 
-// Upload endpoint
-router.post("/", upload.single("file"), async (req, res) => {
+// ================= UPLOAD ENDPOINT =================
+// POST /api/upload/:shopId
+router.post("/:shopId", upload.single("file"), async (req, res) => {
   try {
-    const originalPath = req.file.path;              // uploads/abc123
-    const encryptedPath = originalPath + ".enc";     // uploads/abc123.enc
+    const { shopId } = req.params;
 
-    // Encrypt the file
+    // Check if shop exists
+    const [shop] = await db.query(
+  "SELECT * FROM shops WHERE shopId = ?",
+  [shopId]
+);
+
+    if (shop.length === 0) {
+      return res.status(404).json({ message: "Invalid shop ID" });
+    }
+
+    const originalPath = req.file.path;
+    const encryptedPath = originalPath + ".enc";
+
+    // Encrypt file
     await encryptFile(originalPath, encryptedPath);
 
-    // Delete original unencrypted file
-   if (fs.existsSync(originalPath)) {
-  fs.unlinkSync(originalPath);
-}
+    // Delete original file
+    if (fs.existsSync(originalPath)) {
+      fs.unlinkSync(originalPath);
+    }
+    const fileId = uuidv4();
 
-    // Save encryptedPath in DB instead of originalPath
-    const filePath = encryptedPath;
-
-    // Example DB insert (modify according to your DB structure)
-    // db.query("INSERT INTO files (file_path) VALUES (?)", [filePath]);
-
+    // Save to DB
+    await db.query(
+  `INSERT INTO files 
+   (id, shop_id, file_name, file_path, uploaded_at) 
+   VALUES (?, ?, ?, ?, NOW())`,
+  [
+    fileId,
+    shopId,
+    req.file.originalname,
+    path.basename(encryptedPath)
+  ]
+);
     res.status(200).json({
       message: "File uploaded & encrypted successfully",
-      filePath
     });
 
   } catch (error) {

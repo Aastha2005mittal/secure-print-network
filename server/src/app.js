@@ -8,6 +8,7 @@ const startCleanupJob = require("./services/cleanupService");
 const authRoutes = require("./routes/authRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 
+
 const app = express();
 
 // Middleware to parse JSON
@@ -17,16 +18,20 @@ app.use(express.json());
 // Upload routes
 app.use("/uploads", express.static("uploads"));
 app.use("/api/files", require("./routes/fileRoutes"));
-app.use("/upload", uploadRoutes);
+app.use("/api/upload", uploadRoutes);
 app.use("/shop", shopRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 
 // Test DB query
-db.query("SHOW TABLES", (err, results) => {
-  if (err) console.error("DB query error:", err);
-  else console.log("Tables in DB:", results);
-});
+(async () => {
+  try {
+    await db.query("SELECT 1");
+    console.log("DB Connected ✅");
+  } catch (err) {
+    console.error("DB Connection Failed ❌", err);
+  }
+})();
 
 // Start cron job
 startCleanupJob();

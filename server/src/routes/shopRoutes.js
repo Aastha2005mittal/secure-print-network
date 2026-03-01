@@ -7,117 +7,116 @@ const path = require("path");
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const { decryptFile } = require("../utils/encryption");
+const os = require("os");
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // Get all shops (Admin only)
-router.get("/all", authMiddleware, (req, res) => {
-  const sql = `
-    SELECT shopId, shopName, qrCode, createdAt
-    FROM shops
-    ORDER BY createdAt DESC
-  `;
-
-  db.query(sql, (err, results) => {
-    if (err) {
-      return res.status(500).json({ message: "Database error" });
-    }
+router.get("/all", authMiddleware, async (req, res) => {
+  try {
+    const [results] = await db.query(`
+      SELECT shopId, shopName, qrCode, createdAt
+      FROM shops
+      ORDER BY createdAt DESC
+    `);
 
     res.status(200).json({
       success: true,
       totalShops: results.length,
       shops: results,
     });
-  });
+  } catch (err) {
+    res.status(500).json({ message: "Database error" });
+  }
 });
 
 // Delete shop (Admin only)
-router.delete("/:shopId", authMiddleware, (req, res) => {
+router.delete("/:shopId", authMiddleware, async (req, res) => {
   const { shopId } = req.params;
 
-  const sql = "DELETE FROM shops WHERE shopId = ?";
-
-  db.query(sql, [shopId], (err, result) => {
-    if (err) {
-      return res.status(500).json({ message: "Database error" });
-    }
+  try {
+    const [result] = await db.query("DELETE FROM shops WHERE shopId = ?", [shopId]);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Shop not found" });
     }
 
     res.status(200).json({ message: "Shop deleted successfully" });
-  });
+  } catch (err) {
+    res.status(500).json({ message: "Database error" });
+  }
 });
 
 // GET uploads for a shop
-router.get("/:shopId/uploads", authMiddleware, (req, res) => {
+router.get("/:shopId/uploads", authMiddleware, async (req, res) => {
   const { shopId } = req.params;
 
   if (req.user.role === "shop" && req.user.id !== shopId) {
     return res.status(403).json({ message: "Unauthorized access" });
   }
 
-  const sql = `
-    SELECT uploadId, fileName, uploadTime
-    FROM uploads
-    WHERE shopId = ?
-    ORDER BY uploadTime DESC
-  `;
-
-  db.query(sql, [shopId], (err, results) => {
-    if (err) {
-      return res.status(500).json({ message: "Database error" });
-    }
+  try {
+    const [results] = await db.query(`
+      SELECT uploadId, fileName, uploadTime
+      FROM uploads
+      WHERE shopId = ?
+      ORDER BY uploadTime DESC
+    `, [shopId]);
 
     res.status(200).json({
       success: true,
       totalFiles: results.length,
       files: results,
     });
-  });
+  } catch (err) {
+    res.status(500).json({ message: "Database error" });
+  }
 });
 
 // Download file
-const { decryptFile } = require("../utils/encryption");
-const os = require("os");
-
 router.get("/download/:uploadId", authMiddleware, async (req, res) => {
   const { uploadId } = req.params;
 
-  const sql = "SELECT fileName, filePath FROM uploads WHERE uploadId = ?";
+  try {
+    const [results] = await db.query(
+      "SELECT fileName, filePath FROM uploads WHERE uploadId = ?",
+      [uploadId]
+    );
 
-  db.query(sql, [uploadId], async (err, results) => {
-    if (err || results.length === 0) {
+    if (results.length === 0) {
       return res.status(404).json({ message: "File not found" });
     }
 
     const file = results[0];
-
-    const tempPath = path.join(
-      os.tmpdir(),
-      "decrypted_" + file.fileName
-    );
+    const tempPath = path.join(os.tmpdir(), "decrypted_" + file.fileName);
 
     await decryptFile(file.filePath, tempPath);
 
     res.download(tempPath, file.fileName, () => {
-      fs.unlinkSync(tempPath); // delete temp after download
+      fs.unlinkSync(tempPath);
     });
-  });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
-router.post("/create",shopController.createShop);
+// Create shop
+router.post("/create", shopController.createShop);
 
-router.post("/login", (req, res) => {
+// Shop login
+router.post("/login", async (req, res) => {
   const { shopId, password } = req.body;
 
-  const sql = "SELECT * FROM shops WHERE shopId = ?";
+  if (!shopId || !password) {
+    return res.status(400).json({ message: "shopId and password are required" });
+  }
 
-  db.query(sql, [shopId], async (err, results) => {
-    if (err) {
-      return res.status(500).json({ message: "Database error" });
-    }
+  try {
+    const [results] = await db.query(
+      "SELECT * FROM shops WHERE shopId = ?",
+      [shopId]
+    );
 
     if (results.length === 0) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -132,10 +131,7 @@ router.post("/login", (req, res) => {
     }
 
     const token = jwt.sign(
-      {
-        id: shop.shopId,
-        role: "shop",
-      },
+      { id: shop.shopId, role: "shop" },
       JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -146,7 +142,10 @@ router.post("/login", (req, res) => {
       shopId: shop.shopId,
       shopName: shop.shopName,
     });
-  });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 module.exports = router;

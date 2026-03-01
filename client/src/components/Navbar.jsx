@@ -10,7 +10,7 @@ function Navbar() {
 
       <div className="space-x-6">
         <Link to="/" className="hover:text-blue-600">Home</Link>
-        <Link to="/upload/c6982d95-db05-4ab2-ba81-34db93fc8a0a" className="hover:text-blue-600">Upload</Link>
+        <Link to="/upload/679869cc-38b8-400b-8aa3-f2fa86c675aa" className="hover:text-blue-600">Upload</Link>
         <Link to="/shop/login" className="hover:text-blue-600">Shop Login</Link>
         <Link to="/api/admin/login" className="hover:text-blue-600">Admin Login</Link>
         <Link to="/about" className="hover:text-blue-600">About</Link>
