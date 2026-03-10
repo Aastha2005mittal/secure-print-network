@@ -32,46 +32,59 @@ const upload = multer({
 
 // ================= UPLOAD ENDPOINT =================
 // POST /api/upload/:shopId
-router.post("/:shopId", upload.single("file"), async (req, res) => {
+router.post("/:shopId", upload.array("files", 10), async (req, res) => {
   try {
     const { shopId } = req.params;
 
     // Check if shop exists
     const [shop] = await db.query(
-  "SELECT * FROM shops WHERE shopId = ?",
-  [shopId]
-);
+      "SELECT * FROM shops WHERE shopId = ?",
+      [shopId]
+    );
 
     if (shop.length === 0) {
       return res.status(404).json({ message: "Invalid shop ID" });
     }
 
-    const originalPath = req.file.path;
-    const encryptedPath = originalPath + ".enc";
+    const uploadedFiles = [];
 
-    // Encrypt file
-    await encryptFile(originalPath, encryptedPath);
+    for (const file of req.files) {
+      const originalPath = file.path;
+      const encryptedPath = originalPath + ".enc";
 
-    // Delete original file
-    if (fs.existsSync(originalPath)) {
-      fs.unlinkSync(originalPath);
+      // Encrypt file
+      await encryptFile(originalPath, encryptedPath);
+
+      // Delete original file
+      if (fs.existsSync(originalPath)) {
+        fs.unlinkSync(originalPath);
+      }
+
+      const fileId = uuidv4();
+
+      // Save to DB
+      await db.query(
+        `INSERT INTO files 
+        (id, shopId, file_name, file_path, uploaded_at) 
+        VALUES (?, ?, ?, ?, NOW())`,
+        [
+          fileId,
+          shopId,
+          file.originalname,
+          path.basename(encryptedPath),
+        ]
+      );
+
+      uploadedFiles.push({
+        id: fileId,
+        fileName: file.originalname,
+        status: "uploaded",
+      });
     }
-    const fileId = uuidv4();
 
-    // Save to DB
-    await db.query(
-  `INSERT INTO files 
-   (id, shop_id, file_name, file_path, uploaded_at) 
-   VALUES (?, ?, ?, ?, NOW())`,
-  [
-    fileId,
-    shopId,
-    req.file.originalname,
-    path.basename(encryptedPath)
-  ]
-);
     res.status(200).json({
-      message: "File uploaded & encrypted successfully",
+      message: "Files uploaded & encrypted successfully",
+      files: uploadedFiles,
     });
 
   } catch (error) {

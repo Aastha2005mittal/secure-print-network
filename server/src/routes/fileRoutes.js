@@ -8,7 +8,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 router.get("/shop/:shopId", authMiddleware, async (req, res) => {
   try {
     const [files] = await db.execute(
-      "SELECT * FROM files WHERE shop_id = ? ORDER BY uploaded_at DESC",
+      "SELECT * FROM files WHERE shopId = ? ORDER BY uploaded_at DESC",
       [req.params.shopId]
     );
 

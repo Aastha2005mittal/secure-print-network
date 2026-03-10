@@ -3,7 +3,7 @@ import axios from "axios";
 import { useNavigate, Link } from "react-router-dom"; // import Link
 
 function ShopLogin() {
-    const [shopId, setShopId] = useState("");
+    const [shopName, setShopName] = useState("");
     const [password, setPassword] = useState("");
     const navigate = useNavigate();
 
@@ -11,10 +11,9 @@ function ShopLogin() {
         e.preventDefault(); // VERY IMPORTANT
 
         try {
-            const res = await axios.post("http://localhost:5000/shop/login", {
-               shopId: shopId.trim(),
-    password: password.trim(),
-            
+            const res =await axios.post("http://localhost:5000/shop/login", {
+                shopName: shopName.trim(),
+                password: password.trim()
             });
 
             localStorage.setItem("token", res.data.token);
@@ -35,12 +34,11 @@ function ShopLogin() {
 
                 <input
                     type="text"
-                    placeholder="Shop ID"
-                    value={shopId}
-                    onChange={(e) => setShopId(e.target.value)}
+                    placeholder="Shop Name"
+                    value={shopName}
+                    onChange={(e) => setShopName(e.target.value)}
                     className="border p-2 rounded w-full mb-4"
                     required
-                    autoComplete="username"
                 />
 
                 <input
@@ -64,7 +62,7 @@ function ShopLogin() {
                 <p className="text-center mt-4 text-sm text-gray-600">
                     Don't have a shop account?{" "}
                     <Link
-                        to="/shop/register"
+                        to="/shop/create"
                         className="text-indigo-600 hover:underline"
                     >
                         Create one

@@ -18,7 +18,7 @@ function Home() {
 
         <div className="space-x-4">
          <Link
-        to="/upload/c6982d95-db05-4ab2-ba81-34db93fc8a0a"
+        to="/api/upload/c6982d95-db05-4ab2-ba81-34db93fc8a0a"
         className="px-6 py-3 bg-indigo-600 text-white rounded-xl"
       >
         Upload File

@@ -17,7 +17,7 @@ const FileTable = ({ files }) => {
             </td>
             <td className="p-2">
               <a
-                href={`http://localhost:5000/uploads/${file.file_path}`}
+                href={`http://localhost:5000/api/uploads/${file.file_path}`}
                 className="text-blue-600 hover:underline"
                 download
               >

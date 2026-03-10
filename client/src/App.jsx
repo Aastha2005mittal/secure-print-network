@@ -12,9 +12,9 @@ function App() {
   return (
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/upload/:shopId" element={<UserUpload />} />
+        <Route path="/api/upload/:shopId" element={<UserUpload />} />
         <Route path="/api/admin/login" element={<AdminLogin />} />
-        <Route path="/shop/register" element={<ShopRegister />} />
+        <Route path="/shop/create" element={<ShopRegister />} />
         <Route path="/shop/login" element={<ShopLogin />} />
          <Route path="/dashboard/:shopId" element={<ShopDashboard/>} />
           <Route path="/admin/dashboard" element={<AdminDashboard />} />

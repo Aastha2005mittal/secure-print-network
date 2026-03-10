@@ -48,6 +48,28 @@ router.delete("/:shopId", authMiddleware, async (req, res) => {
   }
 });
 
+// Get shop info (Public for QR page)
+router.get("/:shopId", async (req, res) => {
+  const { shopId } = req.params;
+
+  try {
+    const [results] = await db.query(
+      "SELECT shopId, shopName FROM shops WHERE shopId = ?",
+      [shopId]
+    );
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: "Shop not found" });
+    }
+
+    res.status(200).json(results[0]);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Database error" });
+  }
+});
+
 // GET uploads for a shop
 router.get("/:shopId/uploads", authMiddleware, async (req, res) => {
   const { shopId } = req.params;
@@ -106,16 +128,16 @@ router.post("/create", shopController.createShop);
 
 // Shop login
 router.post("/login", async (req, res) => {
-  const { shopId, password } = req.body;
+  const { shopName, password } = req.body;
 
-  if (!shopId || !password) {
-    return res.status(400).json({ message: "shopId and password are required" });
+  if (!shopName || !password) {
+    return res.status(400).json({ message: "shopName and password are required" });
   }
 
   try {
     const [results] = await db.query(
-      "SELECT * FROM shops WHERE shopId = ?",
-      [shopId]
+      "SELECT * FROM shops WHERE shopName = ?",
+      [shopName]
     );
 
     if (results.length === 0) {
@@ -144,6 +166,7 @@ router.post("/login", async (req, res) => {
     });
 
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });

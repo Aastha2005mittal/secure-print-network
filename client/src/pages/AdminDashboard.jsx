@@ -110,7 +110,7 @@ function AdminDashboard() {
             </h3>
 
             <QRCodeCanvas
-              value={`http://localhost:5173/upload/${shop.id}`}
+              value={`http://localhost:5173/api/upload/${shop.id}`}
               size={120}
             />
           </div>

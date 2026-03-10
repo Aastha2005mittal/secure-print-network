@@ -1,7 +1,7 @@
 import { QRCodeCanvas } from "qrcode.react";
 
 const QRSection = ({ shopId }) => {
-  const qrValue = `http://localhost:5173/upload/${shopId}`;
+  const qrValue = `http://localhost:5173/api/upload/${shopId}`;
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center">

@@ -4,7 +4,7 @@ const fs = require("fs");
 
 const generateShopQRCode = async (shopId) => {
   try {
-    const url = `http://localhost:5000/upload/${shopId}`;
+    const url = `http://localhost:5000/api/upload/${shopId}`;
     const qrPath = path.join(__dirname, "../../qrcodes");
     
     // Create folder if not exists

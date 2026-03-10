@@ -32,7 +32,7 @@ function UploadPage() {
     try {
       setLoading(true);
 
-      await API.post(`/upload/${shopId}`, formData, {
+      await API.post(`/api/upload/${shopId}`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
