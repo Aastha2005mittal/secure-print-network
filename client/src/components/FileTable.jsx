@@ -1,3 +1,5 @@
+import DownloadButton from "./DownloadButton";
+
 const FileTable = ({ files }) => {
   return (
     <table className="w-full text-left">
@@ -5,7 +7,7 @@ const FileTable = ({ files }) => {
         <tr className="border-b">
           <th className="p-2">File Name</th>
           <th className="p-2">Uploaded At</th>
-          <th className="p-2">Download</th>
+          <th className="p-2">Action</th>
         </tr>
       </thead>
       <tbody>
@@ -16,13 +18,7 @@ const FileTable = ({ files }) => {
               {new Date(file.uploaded_at).toLocaleString()}
             </td>
             <td className="p-2">
-              <a
-                href={`http://localhost:5000/api/uploads/${file.file_path}`}
-                className="text-blue-600 hover:underline"
-                download
-              >
-                Download
-              </a>
+              <DownloadButton file={file} />
             </td>
           </tr>
         ))}

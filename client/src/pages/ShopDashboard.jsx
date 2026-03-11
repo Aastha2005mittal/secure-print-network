@@ -23,7 +23,7 @@ const ShopDashboard = () => {
       const token = localStorage.getItem("token");
 
       const res = await axios.get(
-        `http://localhost:5000/shop/${shopId}/uploads`,
+        `http://localhost:5000/api/files/shop/${shopId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -31,7 +31,7 @@ const ShopDashboard = () => {
         }
       );
 
-      setFiles(res.data.files || []);
+      setFiles(res.data.files || res.data || []);
       setStats(res.data.stats || { todayUploads: 0, totalPrints: 0 });
     } catch (err) {
       console.error(err);
