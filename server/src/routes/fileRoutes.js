@@ -4,6 +4,7 @@ const db = require("../db");
 const authMiddleware = require("../middleware/authMiddleware");
 const path = require("path");
 const fs = require("fs");
+const { decryptFile } = require("../utils/encryption");
 
 // 🔹 Get files by shop
 router.get("/shop/:shopId", authMiddleware, async (req, res) => {
@@ -36,33 +37,65 @@ router.put("/status/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// 🔹 Download file by ID
 router.get("/download/:id", async (req, res) => {
   try {
     const fileId = req.params.id;
 
-    // 1️⃣ Get file info from DB
-    const [rows] = await db.execute("SELECT * FROM files WHERE id = ?", [fileId]);
-    if (!rows[0]) return res.status(404).send("File not found in DB");
+    const [rows] = await db.execute(
+      "SELECT * FROM files WHERE id = ?",
+      [fileId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).send("File not found in DB");
+    }
 
     const file = rows[0];
 
-    // 2️⃣ Real path to file on disk
-    const filePath = path.join(__dirname, "../../uploads", file.file_path);
-    console.log("Looking for file at:", filePath); // <-- debug log
+    const encryptedPath = path.join(
+      __dirname,
+      "../../uploads",
+      file.file_path
+    );
 
-    if (!fs.existsSync(filePath)) {
+    if (!fs.existsSync(encryptedPath)) {
       return res.status(404).send("File not found on server");
     }
 
-    // 3️⃣ Send file to client
-    res.download(filePath, file.file_name);
+    const decryptedPath = encryptedPath.replace(".enc", "");
+
+    // 🔓 decrypt file
+    await decryptFile(encryptedPath, decryptedPath);
+
+    // 📄 headers for PDF preview
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${file.file_name}"`);
+
+    // 📡 stream file instead of reading fully
+    const stream = fs.createReadStream(decryptedPath);
+    stream.pipe(res);
+
+    // after stream ends
+    stream.on("end", async () => {
+
+      // delete decrypted temp file
+      if (fs.existsSync(decryptedPath)) {
+        fs.unlinkSync(decryptedPath);
+      }
+
+      // update print status
+      await db.execute(
+        "UPDATE files SET status = 'Printed' WHERE id = ?",
+        [fileId]
+      );
+
+      console.log("File sent and temp deleted");
+    });
 
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error");
   }
 });
-
 
 module.exports = router;

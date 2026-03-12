@@ -3,6 +3,7 @@ import Navbar from "../components/Navbar";
 import axios from "axios";
 import { useParams } from "react-router-dom";
 import { UploadCloud, FileText, CheckCircle } from "lucide-react";
+import PDFPreview from "../components/PDFPreview";
 
 function UserUpload() {
   const { shopId } = useParams();
@@ -11,6 +12,7 @@ function UserUpload() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [shopInfo, setShopInfo] = useState(null);
+  const [previewFile, setPreviewFile] = useState(null);
 
   // Fetch shop info
   useEffect(() => {
@@ -65,7 +67,7 @@ function UserUpload() {
       <Navbar />
 
       <div className="max-w-4xl mx-auto py-16 px-6">
-        
+
         {/* ================= SHOP HEADER ================= */}
         <div className="bg-white rounded-2xl shadow-lg p-8 mb-10 text-center">
           <h1 className="text-3xl font-bold text-indigo-700">
@@ -86,9 +88,23 @@ function UserUpload() {
           <input
             type="file"
             multiple
-            onChange={(e) => setFiles([...e.target.files])}
+            accept="application/pdf"
+            onChange={(e) => {
+              const selectedFiles = [...e.target.files];
+              setFiles(selectedFiles);
+
+              if (selectedFiles.length > 0) {
+                setPreviewFile(URL.createObjectURL(selectedFiles[0]));
+              }
+            }}
             className="mb-4 w-full"
           />
+
+          {previewFile && (
+            <div className="mt-6 border rounded-xl p-4 bg-gray-50">
+              <PDFPreview file={previewFile} />
+            </div>
+          )}
 
           <button
             onClick={handleUpload}
@@ -118,13 +134,12 @@ function UserUpload() {
                   </div>
 
                   <span
-                    className={`px-4 py-1 rounded-full text-sm font-medium ${
-                      file.status === "printed"
+                    className={`px-4 py-1 rounded-full text-sm font-medium ${file.status === "printed"
                         ? "bg-green-100 text-green-700"
                         : file.status === "downloaded"
-                        ? "bg-yellow-100 text-yellow-700"
-                        : "bg-blue-100 text-blue-700"
-                    }`}
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}
                   >
                     {file.status === "printed" && (
                       <CheckCircle className="inline mr-1" size={14} />

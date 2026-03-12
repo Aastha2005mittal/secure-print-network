@@ -1,45 +1,42 @@
-import React from "react";
 import axios from "axios";
 
 const DownloadButton = ({ file }) => {
-    const handleDownload = async () => {
-        try {
-            // Fetch file as blob
-           const response = await axios.get(
-  `http://localhost:5000/api/files/download/${file.id}`,
-  { responseType: "blob" }
-);
-            const blob = new Blob([response.data]);
-            const blobUrl = window.URL.createObjectURL(blob);
 
-            // Trigger download
-            const link = document.createElement("a");
-            link.href = blobUrl;
-            link.setAttribute("download", file.file_name);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            // Open new tab and trigger print
-            const printWindow = window.open(blobUrl);
-            if (printWindow) {
-                printWindow.focus();
-                printWindow.print();
-            }
-        } catch (err) {
-            console.error("Download failed:", err);
-            alert("Failed to download file.");
+  const handleDownload = async () => {
+    try {
+      const response = await axios.get(
+        `http://localhost:5000/api/files/download/${file.id}`,
+        {
+          responseType: "blob",
         }
-    };
+      );
 
-    return (
-        <button
-            onClick={handleDownload}
-            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-            Download & Print
-        </button>
-    );
+      // create PDF blob
+      const blob = new Blob([response.data], { type: "application/pdf" });
+
+      const fileURL = URL.createObjectURL(blob);
+
+      const newWindow = window.open(fileURL);
+
+      // auto open print dialog
+      newWindow.onload = () => {
+        newWindow.print();
+      };
+
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Download failed");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleDownload}
+      className="bg-blue-500 text-black px-3 py-1 rounded hover:bg-blue-600"
+    >
+      Download & Print
+    </button>
+  );
 };
 
 export default DownloadButton;
