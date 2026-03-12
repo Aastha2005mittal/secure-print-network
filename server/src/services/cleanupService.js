@@ -1,35 +1,22 @@
-const cron = require("node-cron");
-const fs = require("fs");
-const path = require("path");
 const db = require("../db");
 
-// Runs every day at 12:00 AM
 const startCleanupJob = () => {
-  cron.schedule("0 0 * * *", async () => {
-    console.log("Running nightly cleanup...");
 
+  // 🧹 Run every 1 hour
+  setInterval(async () => {
     try {
-      // 1️⃣ Get all uploaded files
-      const [results] = await db.query("SELECT filePath FROM uploads");
 
-      // 2️⃣ Delete files from folder
-      for (const file of results) {
-        const absolutePath = path.resolve(file.filePath);
+      const [result] = await db.execute(
+        "DELETE FROM files WHERE status='Printed' AND uploaded_at < NOW() - INTERVAL 1 DAY"
+      );
 
-        if (fs.existsSync(absolutePath)) {
-          fs.unlinkSync(absolutePath);
-          console.log("Deleted:", absolutePath);
-        }
-      }
+      console.log(`Cleanup complete. Deleted ${result.affectedRows} old files.`);
 
-      // 3️⃣ Clear uploads table
-      await db.query("DELETE FROM uploads");
-
-      console.log("Uploads table cleared.");
     } catch (err) {
-      console.error("Cleanup error:", err);
+      console.error("Cleanup job error:", err);
     }
-  });
+
+  }, 3600000); // 1 hour
 };
 
 module.exports = startCleanupJob;

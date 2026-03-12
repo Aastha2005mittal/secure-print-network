@@ -15,6 +15,10 @@ const ShopDashboard = () => {
     totalPrints: 0,
   });
 
+  const handleDelete = (id) => {
+  setFiles((prevFiles) => prevFiles.filter((file) => file.id !== id));
+};
+
   const { shopId } = useParams();
 
   const fetchDashboard = async () => {
@@ -103,7 +107,7 @@ const ShopDashboard = () => {
           </button>
         </div>
 
-        <FileTable files={files} />
+        <FileTable files={files} onDelete={handleDelete} />
       </div>
     </div>
   );

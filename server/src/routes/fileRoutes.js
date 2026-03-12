@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const { decryptFile } = require("../utils/encryption");
 
+
 // 🔹 Get files by shop
 router.get("/shop/:shopId", authMiddleware, async (req, res) => {
   try {
@@ -22,12 +23,12 @@ router.get("/shop/:shopId", authMiddleware, async (req, res) => {
 });
 
 
-// 🔹 Update file status to Printed
+// 🔹 Manually update file status
 router.put("/status/:id", authMiddleware, async (req, res) => {
   try {
     await db.execute(
-      "UPDATE files SET status = 'Printed' WHERE id = ?",
-      [req.params.id]
+      "UPDATE files SET status = ? WHERE id = ?",
+      [req.body.status, req.params.id]
     );
 
     res.json({ message: "Status updated successfully" });
@@ -37,10 +38,13 @@ router.put("/status/:id", authMiddleware, async (req, res) => {
   }
 });
 
+
+// 🔹 Download / Preview file
 router.get("/download/:id", async (req, res) => {
   try {
     const fileId = req.params.id;
 
+    // 1️⃣ Get file from DB
     const [rows] = await db.execute(
       "SELECT * FROM files WHERE id = ?",
       [fileId]
@@ -64,18 +68,26 @@ router.get("/download/:id", async (req, res) => {
 
     const decryptedPath = encryptedPath.replace(".enc", "");
 
-    // 🔓 decrypt file
+    // 2️⃣ Decrypt file
     await decryptFile(encryptedPath, decryptedPath);
 
-    // 📄 headers for PDF preview
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${file.file_name}"`);
+    // 3️⃣ Update status → Printing
+    await db.execute(
+      "UPDATE files SET status='Printing' WHERE id=?",
+      [fileId]
+    );
 
-    // 📡 stream file instead of reading fully
+    // 4️⃣ Send PDF preview
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${file.file_name}"`
+    );
+
     const stream = fs.createReadStream(decryptedPath);
     stream.pipe(res);
 
-    // after stream ends
+    // 5️⃣ After file finishes streaming
     stream.on("end", async () => {
 
       // delete decrypted temp file
@@ -83,13 +95,24 @@ router.get("/download/:id", async (req, res) => {
         fs.unlinkSync(decryptedPath);
       }
 
-      // update print status
+      // delete encrypted file (security)
+      if (fs.existsSync(encryptedPath)) {
+        fs.unlinkSync(encryptedPath);
+      }
+
+      // update status → Printed
       await db.execute(
-        "UPDATE files SET status = 'Printed' WHERE id = ?",
+        "UPDATE files SET status='Printed' WHERE id=?",
         [fileId]
       );
 
-      console.log("File sent and temp deleted");
+      console.log("File printed successfully");
+    });
+
+    // handle stream error
+    stream.on("error", (err) => {
+      console.error("Stream error:", err);
+      res.status(500).send("Error streaming file");
     });
 
   } catch (err) {
