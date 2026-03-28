@@ -1,124 +1,139 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const db = require("../db");
-const authMiddleware = require("../middleware/authMiddleware");
-const path = require("path");
-const fs = require("fs");
-const { decryptFile } = require("../utils/encryption");
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
+const cloudinary = require('cloudinary').v2;
+const { dbAsync } = require('../db');
+const { sessionAuth, ownerAuth } = require('../middleware/auth');
+const stream = require('stream');
 
-
-// 🔹 Get files by shop
-router.get("/shop/:shopId", authMiddleware, async (req, res) => {
-  try {
-    const [files] = await db.execute(
-      "SELECT * FROM files WHERE shopId = ? ORDER BY uploaded_at DESC",
-      [req.params.shopId]
-    );
-
-    res.json(files);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching files" });
-  }
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const storage = multer.memoryStorage();
+const upload = multer({
+    storage,
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+    fileFilter: (req, file, cb) => {
+        const allowedExts = /\.(jpg|jpeg|png|pdf|docx|heic|heif|webp)$/i;
+        const isAllowedExt = file.originalname.match(allowedExts);
+        const isAllowedMime = file.mimetype.match(/^(image\/.*|application\/pdf|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/octet-stream)$/i);
 
-// 🔹 Manually update file status
-router.put("/status/:id", authMiddleware, async (req, res) => {
-  try {
-    await db.execute(
-      "UPDATE files SET status = ? WHERE id = ?",
-      [req.body.status, req.params.id]
-    );
-
-    res.json({ message: "Status updated successfully" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating status" });
-  }
+        if (isAllowedExt || isAllowedMime) {
+            cb(null, true);
+        } else {
+            cb(new Error(`File type not supported: ${file.originalname}`));
+        }
+    }
 });
 
+const uploadToCloudinary = (fileBuffer, originalName) => {
+    return new Promise((resolve, reject) => {
+        let resourceType = 'auto';
+        if (originalName.match(/\.(pdf|docx)$/i)) resourceType = 'raw';
+        if (originalName.match(/\.(jpg|jpeg|png|webp|heic|heif)$/i)) resourceType = 'image';
 
-// 🔹 Download / Preview file
-router.get("/download/:id", async (req, res) => {
-  try {
-    const fileId = req.params.id;
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { resource_type: resourceType, folder: 'secure-print-store' },
+            (error, result) => {
+                if (error) reject(error);
+                else resolve({ result, resourceType });
+            }
+        );
 
-    // 1️⃣ Get file from DB
-    const [rows] = await db.execute(
-      "SELECT * FROM files WHERE id = ?",
-      [fileId]
-    );
-
-    if (!rows.length) {
-      return res.status(404).send("File not found in DB");
-    }
-
-    const file = rows[0];
-
-    const encryptedPath = path.join(
-      __dirname,
-      "../../uploads",
-      file.file_path
-    );
-
-    if (!fs.existsSync(encryptedPath)) {
-      return res.status(404).send("File not found on server");
-    }
-
-    const decryptedPath = encryptedPath.replace(".enc", "");
-
-    // 2️⃣ Decrypt file
-    await decryptFile(encryptedPath, decryptedPath);
-
-    // 3️⃣ Update status → Printing
-    await db.execute(
-      "UPDATE files SET status='Printing' WHERE id=?",
-      [fileId]
-    );
-
-    // 4️⃣ Send PDF preview
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${file.file_name}"`
-    );
-
-    const stream = fs.createReadStream(decryptedPath);
-    stream.pipe(res);
-
-    // 5️⃣ After file finishes streaming
-    stream.on("end", async () => {
-
-      // delete decrypted temp file
-      if (fs.existsSync(decryptedPath)) {
-        fs.unlinkSync(decryptedPath);
-      }
-
-      // delete encrypted file (security)
-      if (fs.existsSync(encryptedPath)) {
-        fs.unlinkSync(encryptedPath);
-      }
-
-      // update status → Printed
-      await db.execute(
-        "UPDATE files SET status='Printed' WHERE id=?",
-        [fileId]
-      );
-
-      console.log("File printed successfully");
+        const bufferStream = new stream.PassThrough();
+        bufferStream.end(fileBuffer);
+        bufferStream.pipe(uploadStream);
     });
+};
 
-    // handle stream error
-    stream.on("error", (err) => {
-      console.error("Stream error:", err);
-      res.status(500).send("Error streaming file");
-    });
+router.post('/upload/me', sessionAuth, upload.array('files', 10), async (req, res) => {
+    try {
+        const files = req.files;
+        const uploadSessionId = req.user.uploadSessionId;
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Server error");
-  }
+        if (!files || files.length === 0) {
+            return res.status(400).json({ message: 'No files uploaded' });
+        }
+
+        const uploadedRecords = [];
+        for (const file of files) {
+            try {
+                const { result, resourceType } = await uploadToCloudinary(file.buffer, file.originalname);
+                const fileId = uuidv4();
+
+                await dbAsync.run(
+                    `INSERT INTO Files (id, uploadSessionId, cloudinaryPublicId, fileUrl, fileName, resourceType, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [fileId, uploadSessionId, result.public_id, result.secure_url, file.originalname, resourceType, 'pending']
+                );
+
+                const fileRecord = await dbAsync.get('SELECT * FROM Files WHERE id = ?', [fileId]);
+                uploadedRecords.push(fileRecord);
+
+                // Broadcast new file to session and shop owners
+                const { emitToSessionAndShop } = require('../socket');
+                await emitToSessionAndShop(uploadSessionId, 'newFile', fileRecord);
+
+                // Also create a Message record for this file to display in chat
+                const messageId = uuidv4();
+                const fileMessageContent = JSON.stringify({
+                    fileName: fileRecord.fileName,
+                    fileUrl: fileRecord.fileUrl
+                });
+                await dbAsync.run(
+                    'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?)',
+                    [messageId, uploadSessionId, 'customer', 'file', fileMessageContent]
+                );
+                const messageRecord = await dbAsync.get('SELECT * FROM Messages WHERE id = ?', [messageId]);
+                await emitToSessionAndShop(uploadSessionId, 'newMessage', messageRecord);
+            } catch (uploadError) {
+                console.error('Error uploading file to cloudinary:', uploadError);
+            }
+        }
+
+        res.status(201).json(uploadedRecords);
+    } catch (error) {
+        if (error.message.includes('File type not supported')) {
+            return res.status(400).json({ message: error.message });
+        }
+        console.error(error);
+        res.status(500).json({ message: 'Server error uploading files' });
+    }
+});
+
+router.get('/me', sessionAuth, async (req, res) => {
+    try {
+        const files = await dbAsync.all('SELECT * FROM Files WHERE uploadSessionId = ? ORDER BY createdAt DESC', [req.user.uploadSessionId]);
+        res.json(files);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.get('/session/:id', ownerAuth, async (req, res) => {
+    try {
+        const files = await dbAsync.all('SELECT * FROM Files WHERE uploadSessionId = ? ORDER BY createdAt DESC', [req.params.id]);
+        res.json(files);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.patch('/:id/printed', ownerAuth, async (req, res) => {
+    try {
+        await dbAsync.run('UPDATE Files SET status = ? WHERE id = ?', ['printed', req.params.id]);
+        const file = await dbAsync.get('SELECT * FROM Files WHERE id = ?', [req.params.id]);
+        res.json(file);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 module.exports = router;

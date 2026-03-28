@@ -1,24 +1,35 @@
-import React from "react";
-import { Routes, Route } from "react-router-dom";
-import Home from "./pages/Home";
-import UserUpload from "./pages/UserUpload";
-import AdminLogin from "./pages/AdminLogin";
-import ShopLogin from "./pages/ShopLogin";
-import ShopRegister from "./pages/ShopRegister";
-import ShopDashboard from "./pages/ShopDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import LandingPage from './pages/LandingPage';
+import DashboardPage from './pages/DashboardPage';
+import RoomPage from './pages/RoomPage';
+import LoginPage from './pages/LoginPage';
+import UploadRedirect from './pages/UploadRedirect';
+
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('token');
+  if (!token) return <Navigate to="/login" replace />;
+  return children;
+};
 
 function App() {
   return (
+    <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/api/upload/:shopId" element={<UserUpload />} />
-        <Route path="/api/admin/login" element={<AdminLogin />} />
-        <Route path="/shop/create" element={<ShopRegister />} />
-        <Route path="/shop/login" element={<ShopLogin />} />
-         <Route path="/dashboard/:shopId" element={<ShopDashboard/>} />
-          <Route path="/admin/dashboard" element={<AdminDashboard />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/upload/:uniqueCode" element={<UploadRedirect />} />
+        <Route path="/session/:sessionId" element={<RoomPage />} />
+
+        <Route
+          path="/owner/dashboard"
+          element={
+            <ProtectedRoute>
+              <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
+    </BrowserRouter>
   );
 }
 

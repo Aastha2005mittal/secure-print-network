@@ -1,174 +1,80 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const shopController = require("../controllers/shopController");
-const authMiddleware = require("../middleware/authMiddleware");
-const db = require("../db");
-const path = require("path");
-const fs = require("fs");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcrypt");
-const { decryptFile } = require("../utils/encryption");
-const os = require("os");
+const { dbAsync } = require('../db');
+const { v4: uuidv4 } = require('uuid');
+const { customAlphabet } = require('nanoid');
+const bcrypt = require('bcryptjs');
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', 6);
 
-// Get all shops (Admin only)
-router.get("/all", authMiddleware, async (req, res) => {
-  try {
-    const [results] = await db.query(`
-      SELECT shopId, shopName, qrCode, createdAt
-      FROM shops
-      ORDER BY createdAt DESC
-    `);
+router.post('/create', async (req, res) => {
+    try {
+        const { name, ownerEmail, password, ownerPassword } = req.body;
+        const pwd = password || ownerPassword;
 
-    res.status(200).json({
-      success: true,
-      totalShops: results.length,
-      shops: results,
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Database error" });
-  }
+        if (!name || !ownerEmail || !pwd) {
+            return res.status(400).json({ message: 'Missing required fields' });
+        }
+
+        const hashedPassword = await bcrypt.hash(pwd, 10);
+        const shopId = uuidv4();
+        let uniqueCode;
+
+        // Generate an unique code and verify it does not exist
+        while (true) {
+            uniqueCode = nanoid();
+            const existing = await dbAsync.get('SELECT id FROM Shops WHERE uniqueCode = ?', [uniqueCode]);
+            if (!existing) break;
+        }
+
+        await dbAsync.run(
+            'INSERT INTO Shops (id, name, uniqueCode, ownerEmail, ownerPassword) VALUES (?, ?, ?, ?, ?)',
+            [shopId, name, uniqueCode, ownerEmail, hashedPassword]
+        );
+
+        const roomId = uuidv4();
+        await dbAsync.run(
+            'INSERT INTO Rooms (id, shopId) VALUES (?, ?)',
+            [roomId, shopId]
+        );
+
+        const jwt = require('jsonwebtoken');
+        const token = jwt.sign(
+            { sub: shopId, email: ownerEmail, role: 'owner', shopId },
+            process.env.JWT_SECRET || 'secret'
+        );
+
+        const shop = await dbAsync.get('SELECT id, name, uniqueCode, ownerEmail, createdAt FROM Shops WHERE id = ?', [shopId]);
+        return res.status(201).json({ access_token: token, shop });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error creating shop' });
+    }
 });
 
-// Delete shop (Admin only)
-router.delete("/:shopId", authMiddleware, async (req, res) => {
-  const { shopId } = req.params;
+router.get('/upload/:uniqueCode', async (req, res) => {
+    try {
+        const { uniqueCode } = req.params;
 
-  try {
-    const [result] = await db.query("DELETE FROM shops WHERE shopId = ?", [shopId]);
+        // Get shop and its associated room in one query or two
+        const shop = await dbAsync.get('SELECT id, name FROM Shops WHERE uniqueCode = ?', [uniqueCode]);
+        if (!shop) {
+            return res.status(404).json({ message: 'Shop not found' });
+        }
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Shop not found" });
+        const room = await dbAsync.get('SELECT id FROM Rooms WHERE shopId = ?', [shop.id]);
+        if (!room) {
+            return res.status(404).json({ message: 'Room not found' });
+        }
+
+        return res.json({
+            roomId: room.id,
+            shopName: shop.name,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error' });
     }
-
-    res.status(200).json({ message: "Shop deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Database error" });
-  }
-});
-
-// Get shop info (Public for QR page)
-router.get("/:shopId", async (req, res) => {
-  const { shopId } = req.params;
-
-  try {
-    const [results] = await db.query(
-      "SELECT shopId, shopName FROM shops WHERE shopId = ?",
-      [shopId]
-    );
-
-    if (results.length === 0) {
-      return res.status(404).json({ message: "Shop not found" });
-    }
-
-    res.status(200).json(results[0]);
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Database error" });
-  }
-});
-
-// GET uploads for a shop
-router.get("/:shopId/uploads", authMiddleware, async (req, res) => {
-  const { shopId } = req.params;
-
-  if (req.user.role === "shop" && req.user.id !== shopId) {
-    return res.status(403).json({ message: "Unauthorized access" });
-  }
-
-  try {
-    const [results] = await db.query(`
-      SELECT uploadId, fileName, uploadTime
-      FROM uploads
-      WHERE shopId = ?
-      ORDER BY uploadTime DESC
-    `, [shopId]);
-
-    res.status(200).json({
-      success: true,
-      totalFiles: results.length,
-      files: results,
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Database error" });
-  }
-});
-
-// Download file
-router.get("/download/:uploadId", authMiddleware, async (req, res) => {
-  const { uploadId } = req.params;
-
-  try {
-    const [results] = await db.query(
-      "SELECT fileName, filePath FROM uploads WHERE uploadId = ?",
-      [uploadId]
-    );
-
-    if (results.length === 0) {
-      return res.status(404).json({ message: "File not found" });
-    }
-
-    const file = results[0];
-    const tempPath = path.join(os.tmpdir(), "decrypted_" + file.fileName);
-
-    await decryptFile(file.filePath, tempPath);
-
-    res.download(tempPath, file.fileName, () => {
-      fs.unlinkSync(tempPath);
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Create shop
-router.post("/create", shopController.createShop);
-
-// Shop login
-router.post("/login", async (req, res) => {
-  const { shopName, password } = req.body;
-
-  if (!shopName || !password) {
-    return res.status(400).json({ message: "shopName and password are required" });
-  }
-
-  try {
-    const [results] = await db.query(
-      "SELECT * FROM shops WHERE shopName = ?",
-      [shopName]
-    );
-
-    if (results.length === 0) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    const shop = results[0];
-
-    const isMatch = await bcrypt.compare(password, shop.password);
-
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    const token = jwt.sign(
-      { id: shop.shopId, role: "shop" },
-      JWT_SECRET,
-      { expiresIn: "1d" }
-    );
-
-    res.status(200).json({
-      success: true,
-      token,
-      shopId: shop.shopId,
-      shopName: shop.shopName,
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
-  }
 });
 
 module.exports = router;
