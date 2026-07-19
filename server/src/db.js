@@ -1,51 +1,54 @@
-const { Pool } = require('pg');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const fs = require('fs');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+const dbPath = path.resolve(__dirname, '../database.sqlite');
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('Error opening database', err.message);
+  } else {
+    console.log('Connected to SQLite database.');
+    db.run('PRAGMA foreign_keys = ON;');
+    createTables();
+  }
 });
 
-pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
-});
-
-// Create tables for PostgreSQL (replacing SQLite syntax)
-async function createTables() {
-  try {
-    await pool.query(`
+function createTables() {
+  db.serialize(() => {
+    db.run(`
       CREATE TABLE IF NOT EXISTS Shops (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         uniqueCode TEXT NOT NULL UNIQUE,
         ownerEmail TEXT NOT NULL,
         ownerPassword TEXT NOT NULL,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    await pool.query(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS Rooms (
         id TEXT PRIMARY KEY,
         shopId TEXT NOT NULL,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (shopId) REFERENCES Shops (id) ON DELETE CASCADE
       )
     `);
 
-    await pool.query(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS UploadSessions (
         id TEXT PRIMARY KEY,
         roomId TEXT NOT NULL,
         customerName TEXT NOT NULL,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (roomId) REFERENCES Rooms (id) ON DELETE CASCADE
       )
     `);
 
-    await pool.query(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS Files (
         id TEXT PRIMARY KEY,
         uploadSessionId TEXT NOT NULL,
@@ -54,54 +57,50 @@ async function createTables() {
         fileName TEXT NOT NULL,
         resourceType TEXT NOT NULL DEFAULT 'image',
         status TEXT NOT NULL DEFAULT 'pending',
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (uploadSessionId) REFERENCES UploadSessions (id) ON DELETE CASCADE
       )
     `);
 
-    await pool.query(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS Messages (
         id TEXT PRIMARY KEY,
         uploadSessionId TEXT NOT NULL,
         senderType TEXT NOT NULL,
         messageType TEXT NOT NULL DEFAULT 'text',
         content TEXT NOT NULL,
-        isRead SMALLINT NOT NULL DEFAULT 0,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        isRead BOOLEAN NOT NULL DEFAULT 0,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (uploadSessionId) REFERENCES UploadSessions (id) ON DELETE CASCADE
       )
-    `);
-
-    console.log('Connected to PostgreSQL database and verified tables.');
-  } catch (err) {
-    console.error('Error verifying database tables:', err);
-  }
+    `, () => {
+      // Lazy migration for existing DB
+      db.run("ALTER TABLE Messages ADD COLUMN messageType TEXT NOT NULL DEFAULT 'text'", () => { });
+    });
+  });
 }
 
-// Call createTables immediately to ensure layout
-createTables();
-
-// Wrapper for promises to map SQLite commands to PostgreSQL
-const replaceQuestionMarks = (sql) => {
-    let index = 1;
-    return sql.replace(/\?/g, () => `$${index++}`);
-};
-
+// Wrapper for promises to use with async/await
 const dbAsync = {
-  get: async (sql, params = []) => {
-    const { rows } = await pool.query(replaceQuestionMarks(sql), params);
-    return rows[0];
-  },
-  all: async (sql, params = []) => {
-    const { rows } = await pool.query(replaceQuestionMarks(sql), params);
-    return rows;
-  },
-  run: async (sql, params = []) => {
-    // postgres query returns rowCount for updates/deletes
-    const res = await pool.query(replaceQuestionMarks(sql), params);
-    return { changes: res.rowCount };
-  }
+  get: (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  }),
+  all: (sql, params = []) => new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  }),
+  run: (sql, params = []) => new Promise((resolve, reject) => {
+    // using function(err) to retain 'this' binding (this.lastID, this.changes)
+    db.run(sql, params, function (err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  }),
 };
 
-module.exports = { db: pool, dbAsync };
-
+module.exports = { db, dbAsync };

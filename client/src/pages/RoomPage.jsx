@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getMe, getMyMessages, sendMessage, uploadFiles, getMyFiles, markAsReadCustomer } from '../api';
+import { getMe, getMyMessages, sendMessage, uploadFiles, getMyFiles, markAsReadCustomer, downloadMyFile } from '../api';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, FileUp, FileText, CheckCheck, Loader2, Printer, Shield, Download, X } from 'lucide-react';
@@ -106,8 +106,7 @@ export default function RoomPage() {
             setFiles(fileRes.data);
 
             const token = localStorage.getItem('token');
-            const socketUrl = import.meta.env.VITE_BACKEND_URL || '/';
-            const socket = io(socketUrl, { auth: { token } });
+            const socket = io('/', { auth: { token } });
             socketRef.current = socket;
 
             socket.on('newMessage', (msg) => {
@@ -159,6 +158,25 @@ export default function RoomPage() {
             setUploading(false);
             setUploadFiles_([]);
             e.target.value = '';
+        }
+    };
+
+    const handleDownloadFile = async (fileId, fileName) => {
+        if (!fileId) return;
+
+        try {
+            const { data } = await downloadMyFile(fileId);
+            const url = window.URL.createObjectURL(data);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName || 'download';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error(err);
+            alert('Download failed');
         }
     };
 
@@ -226,6 +244,10 @@ export default function RoomPage() {
                         const isFile = msg.messageType === 'file';
                         let fileData = null;
                         if (isFile) { try { fileData = JSON.parse(msg.content); } catch { } }
+                        const matchingFile = fileData
+                            ? files.find(file => file.id === fileData.fileId || file.fileUrl === fileData.fileUrl || file.fileName === fileData.fileName)
+                            : null;
+                        const fileId = fileData?.fileId || matchingFile?.id;
 
                         return (
                             <div
@@ -250,14 +272,14 @@ export default function RoomPage() {
                                             </div>
                                             <div style={{ minWidth: 0 }}>
                                                 <p style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160, marginBottom: 3 }}>{fileData.fileName}</p>
-                                                <a
-                                                    href={fileData.fileUrl.replace('/upload/', '/upload/fl_attachment/')}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none' }}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDownloadFile(fileId, fileData.fileName)}
+                                                    disabled={!fileId}
+                                                    style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', padding: 0, cursor: fileId ? 'pointer' : 'default' }}
                                                 >
-                                                    <Download size={9} /> Download file
-                                                </a>
+                                                    <Download size={9} /> Download
+                                                </button>
                                             </div>
                                         </div>
                                     ) : (

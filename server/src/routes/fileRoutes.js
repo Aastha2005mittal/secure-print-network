@@ -6,6 +6,7 @@ const cloudinary = require('cloudinary').v2;
 const { dbAsync } = require('../db');
 const { sessionAuth, ownerAuth } = require('../middleware/auth');
 const stream = require('stream');
+const https = require('https');
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -50,6 +51,27 @@ const uploadToCloudinary = (fileBuffer, originalName) => {
     });
 };
 
+const sendCloudinaryDownload = (res, file) => {
+    const safeFileName = file.fileName.replace(/["\r\n]/g, '_');
+    const asciiFileName = safeFileName.replace(/[^\x20-\x7E]/g, '_') || 'download';
+    const encodedFileName = encodeURIComponent(safeFileName);
+
+    https.get(file.fileUrl, (cloudinaryRes) => {
+        if (cloudinaryRes.statusCode < 200 || cloudinaryRes.statusCode >= 300) {
+            return res.status(502).json({ message: 'Could not fetch file for download' });
+        }
+
+        res.setHeader('Content-Type', cloudinaryRes.headers['content-type'] || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${asciiFileName}"; filename*=UTF-8''${encodedFileName}`);
+        cloudinaryRes.pipe(res);
+    }).on('error', (error) => {
+        console.error(error);
+        if (!res.headersSent) {
+            res.status(500).json({ message: 'Server error downloading file' });
+        }
+    });
+};
+
 router.post('/upload/me', sessionAuth, upload.array('files', 10), async (req, res) => {
     try {
         const files = req.files;
@@ -81,6 +103,7 @@ router.post('/upload/me', sessionAuth, upload.array('files', 10), async (req, re
                 // Also create a Message record for this file to display in chat
                 const messageId = uuidv4();
                 const fileMessageContent = JSON.stringify({
+                    fileId: fileRecord.id,
                     fileName: fileRecord.fileName,
                     fileUrl: fileRecord.fileUrl
                 });
@@ -105,6 +128,24 @@ router.post('/upload/me', sessionAuth, upload.array('files', 10), async (req, re
     }
 });
 
+router.get('/me/:id/download', sessionAuth, async (req, res) => {
+    try {
+        const file = await dbAsync.get(
+            'SELECT * FROM Files WHERE id = ? AND uploadSessionId = ?',
+            [req.params.id, req.user.uploadSessionId]
+        );
+
+        if (!file) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+
+        sendCloudinaryDownload(res, file);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error downloading file' });
+    }
+});
+
 router.get('/me', sessionAuth, async (req, res) => {
     try {
         const files = await dbAsync.all('SELECT * FROM Files WHERE uploadSessionId = ? ORDER BY createdAt DESC', [req.user.uploadSessionId]);
@@ -122,6 +163,28 @@ router.get('/session/:id', ownerAuth, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+router.get('/:id/download', ownerAuth, async (req, res) => {
+    try {
+        const file = await dbAsync.get(
+            `SELECT f.*
+             FROM Files f
+             JOIN UploadSessions us ON f.uploadSessionId = us.id
+             JOIN Rooms r ON us.roomId = r.id
+             WHERE f.id = ? AND r.shopId = ?`,
+            [req.params.id, req.user.shopId]
+        );
+
+        if (!file) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+
+        sendCloudinaryDownload(res, file);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error downloading file' });
     }
 });
 

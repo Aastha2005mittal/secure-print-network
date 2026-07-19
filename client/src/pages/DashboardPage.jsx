@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getShopSessions, getSessionMessages, sendOwnerMessage, markPrinted, getSessionFiles, markAsReadOwner } from '../api';
+import { getShopSessions, getSessionMessages, sendOwnerMessage, markPrinted, getSessionFiles, markAsReadOwner, downloadFile } from '../api';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -74,10 +74,12 @@ const Avatar = ({ name, size = 36, onClick }) => {
     );
 };
 
-const ProfileModal = ({ shop, onClose }) => {
+const ProfileModal = ({shop, onClose }) => {
+    console.log("Shop in profile modal", shop);
     const [copied, setCopied] = useState(false);
     const publicUrl = window.location.origin;
-    const uploadUrl = `${publicUrl}/upload/${shop.uniqueCode}`;
+    const uploadUrl = `${publicUrl}/upload/${shop.uniqueCode === undefined ? shop.uniquecode : shop.uniqueCode}`;
+    console.log("Upload url" , uploadUrl);
 
     const copyUrl = () => {
         navigator.clipboard.writeText(uploadUrl);
@@ -193,8 +195,7 @@ export default function DashboardPage() {
     useEffect(() => {
         fetchSessions();
         const token = localStorage.getItem('token');
-        const socketUrl = import.meta.env.VITE_BACKEND_URL || '/';
-        const socket = io(socketUrl, { auth: { token } });
+        const socket = io('/', { auth: { token } });
         socketRef.current = socket;
 
         socket.on('newMessage', (msg) => {
@@ -265,6 +266,25 @@ export default function DashboardPage() {
             await markPrinted(sessionId);
             fetchSessions();
         } catch (err) { console.error(err); }
+    };
+
+    const handleDownloadFile = async (fileId, fileName) => {
+        if (!fileId) return;
+
+        try {
+            const { data } = await downloadFile(fileId);
+            const url = window.URL.createObjectURL(data);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName || 'download';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error(err);
+            alert('Download failed');
+        }
     };
 
     const filteredSessions = sessions.filter(s =>
@@ -440,6 +460,10 @@ export default function DashboardPage() {
                                     if (isFile) {
                                         try { fileData = JSON.parse(msg.content); } catch { }
                                     }
+                                    const matchingFile = fileData
+                                        ? files.find(file => file.id === fileData.fileId || file.fileUrl === fileData.fileUrl || file.fileName === fileData.fileName)
+                                        : null;
+                                    const fileId = fileData?.fileId || matchingFile?.id;
 
                                     return (
                                         <div
@@ -468,14 +492,14 @@ export default function DashboardPage() {
                                                         </div>
                                                         <div style={{ minWidth: 0 }}>
                                                             <p style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{fileData.fileName}</p>
-                                                            <a
-                                                                href={fileData.fileUrl.replace('/upload/', '/upload/fl_attachment/')}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDownloadFile(fileId, fileData.fileName)}
+                                                                disabled={!fileId}
+                                                                style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, background: 'none', border: 'none', padding: 0, cursor: fileId ? 'pointer' : 'default' }}
                                                             >
                                                                 <Download size={10} /> Download
-                                                            </a>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 ) : (

@@ -1,9 +1,7 @@
 import axios from 'axios';
 
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
-
 const api = axios.create({
-    baseURL: BACKEND_URL ? `${BACKEND_URL.replace(/\/$/, '')}/api` : '/api',
+    baseURL: '/api',
 });
 
 // Request interceptor to add tokens
@@ -41,10 +39,13 @@ export const uploadFiles = (files) => {
 export const getMyFiles = () => api.get('/files/me');
 export const getSessionFiles = (sessionId) => api.get(`/files/session/${sessionId}`);
 export const markPrinted = (fileId) => api.patch(`/files/${fileId}/printed`);
+export const downloadFile = (fileId) => api.get(`/files/${fileId}/download`, { responseType: 'blob' });
+export const downloadMyFile = (fileId) => api.get(`/files/me/${fileId}/download`, { responseType: 'blob' });
 
 // Auth
 export const loginOwner = (email, password) => api.post('/auth/owner/login', { email, password });
 
 export default api;
 export const markAsReadOwner = (sessionId) => api.post(`/messages/read/${sessionId}`);
+console.log("Mark as read owner called for sessionId:", markAsReadOwner);
 export const markAsReadCustomer = () => api.post('/messages/read-me');

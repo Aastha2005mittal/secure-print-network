@@ -44,16 +44,8 @@ router.post('/create', async (req, res) => {
             process.env.JWT_SECRET || 'secret'
         );
 
-       const shop = await dbAsync.get(
-  'SELECT id, name, uniqueCode, ownerEmail, createdAt FROM Shops WHERE id = ?',
-  [shopId]
-);
-
-return res.status(201).json({
-  access_token: token,
-  shop,
-  roomId
-});
+        const shop = await dbAsync.get('SELECT id, name, uniqueCode, ownerEmail, createdAt FROM Shops WHERE id = ?', [shopId]);
+        return res.status(201).json({ access_token: token, shop });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error creating shop' });
