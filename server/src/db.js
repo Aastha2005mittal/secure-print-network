@@ -1,106 +1,184 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
+const { AsyncLocalStorage } = require('async_hooks');
 
-const dbPath = path.resolve(__dirname, '../database.sqlite');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database', err.message);
-  } else {
-    console.log('Connected to SQLite database.');
-    db.run('PRAGMA foreign_keys = ON;');
-    createTables();
-  }
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
 });
 
-function createTables() {
-  db.serialize(() => {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS Shops (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        uniqueCode TEXT NOT NULL UNIQUE,
-        ownerEmail TEXT NOT NULL,
-        ownerPassword TEXT NOT NULL,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+const asyncLocalStorage = new AsyncLocalStorage();
 
-    db.run(`
-      CREATE TABLE IF NOT EXISTS Rooms (
-        id TEXT PRIMARY KEY,
-        shopId TEXT NOT NULL,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (shopId) REFERENCES Shops (id) ON DELETE CASCADE
-      )
-    `);
+const KEY_MAP = {
+  uniquecode: 'uniqueCode',
+  owneremail: 'ownerEmail',
+  ownerpassword: 'ownerPassword',
+  createdat: 'createdAt',
+  updatedat: 'updatedAt',
+  shopid: 'shopId',
+  roomid: 'roomId',
+  customername: 'customerName',
+  uploadsessionid: 'uploadSessionId',
+  cloudinarypublicid: 'cloudinaryPublicId',
+  fileurl: 'fileUrl',
+  filename: 'fileName',
+  resourcetype: 'resourceType',
+  sendertype: 'senderType',
+  messagetype: 'messageType',
+  isread: 'isRead',
+  unreadcount: 'unreadCount',
+};
 
-    db.run(`
-      CREATE TABLE IF NOT EXISTS UploadSessions (
-        id TEXT PRIMARY KEY,
-        roomId TEXT NOT NULL,
-        customerName TEXT NOT NULL,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (roomId) REFERENCES Rooms (id) ON DELETE CASCADE
-      )
-    `);
-
-    db.run(`
-      CREATE TABLE IF NOT EXISTS Files (
-        id TEXT PRIMARY KEY,
-        uploadSessionId TEXT NOT NULL,
-        cloudinaryPublicId TEXT NOT NULL,
-        fileUrl TEXT NOT NULL,
-        fileName TEXT NOT NULL,
-        resourceType TEXT NOT NULL DEFAULT 'image',
-        status TEXT NOT NULL DEFAULT 'pending',
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (uploadSessionId) REFERENCES UploadSessions (id) ON DELETE CASCADE
-      )
-    `);
-
-    db.run(`
-      CREATE TABLE IF NOT EXISTS Messages (
-        id TEXT PRIMARY KEY,
-        uploadSessionId TEXT NOT NULL,
-        senderType TEXT NOT NULL,
-        messageType TEXT NOT NULL DEFAULT 'text',
-        content TEXT NOT NULL,
-        isRead BOOLEAN NOT NULL DEFAULT 0,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (uploadSessionId) REFERENCES UploadSessions (id) ON DELETE CASCADE
-      )
-    `, () => {
-      // Lazy migration for existing DB
-      db.run("ALTER TABLE Messages ADD COLUMN messageType TEXT NOT NULL DEFAULT 'text'", () => { });
-    });
-  });
+function mapRowKeys(row) {
+  if (!row) return row;
+  const mapped = {};
+  for (const key of Object.keys(row)) {
+    const lowerKey = key.toLowerCase();
+    const mappedKey = KEY_MAP[lowerKey] || key;
+    mapped[mappedKey] = row[key];
+  }
+  return mapped;
 }
 
-// Wrapper for promises to use with async/await
+function convertSql(sql) {
+  let index = 1;
+  return sql.replace(/\?/g, () => `$${index++}`);
+}
+
+async function getClient() {
+  const store = asyncLocalStorage.getStore();
+  if (store && store.client) {
+    return store.client;
+  }
+  return pool;
+}
+
 const dbAsync = {
-  get: (sql, params = []) => new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
+  get: async (sql, params = []) => {
+    const client = await getClient();
+    const convertedSql = convertSql(sql);
+    const result = await client.query(convertedSql, params);
+    return result.rows.length > 0 ? mapRowKeys(result.rows[0]) : null;
+  },
+  all: async (sql, params = []) => {
+    const client = await getClient();
+    const convertedSql = convertSql(sql);
+    const result = await client.query(convertedSql, params);
+    return result.rows.map(mapRowKeys);
+  },
+  run: async (sql, params = []) => {
+    const client = await getClient();
+    const convertedSql = convertSql(sql);
+    const result = await client.query(convertedSql, params);
+    return { lastID: undefined, changes: result.rowCount };
+  },
+  transaction: async (callback) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await asyncLocalStorage.run({ client }, callback);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+};
+
+// Initialize database schema
+async function createTables() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shops (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        uniquecode TEXT NOT NULL UNIQUE,
+        owneremail TEXT NOT NULL,
+        ownerpassword TEXT NOT NULL,
+        createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id TEXT PRIMARY KEY,
+        shopid TEXT NOT NULL REFERENCES shops (id) ON DELETE CASCADE,
+        createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS uploadsessions (
+        id TEXT PRIMARY KEY,
+        roomid TEXT NOT NULL REFERENCES rooms (id) ON DELETE CASCADE,
+        customername TEXT NOT NULL,
+        createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS files (
+        id TEXT PRIMARY KEY,
+        uploadsessionid TEXT NOT NULL REFERENCES uploadsessions (id) ON DELETE CASCADE,
+        cloudinarypublicid TEXT NOT NULL,
+        fileurl TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        resourcetype TEXT NOT NULL DEFAULT 'image',
+        status TEXT NOT NULL DEFAULT 'pending',
+        createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        uploadsessionid TEXT NOT NULL REFERENCES uploadsessions (id) ON DELETE CASCADE,
+        sendertype TEXT NOT NULL,
+        messagetype TEXT NOT NULL DEFAULT 'text',
+        content TEXT NOT NULL,
+        isread INTEGER NOT NULL DEFAULT 0,
+        createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('Tables initialized successfully in PostgreSQL.');
+  } catch (err) {
+    console.error('Error creating database tables:', err);
+  }
+}
+
+createTables();
+
+// Mock raw db object to prevent imports from breaking if any exist
+const db = {
+  run: (sql, params, callback) => {
+    dbAsync.run(sql, params).then(res => {
+      if (callback) callback(null, res);
+    }).catch(err => {
+      if (callback) callback(err);
     });
-  }),
-  all: (sql, params = []) => new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
+  },
+  get: (sql, params, callback) => {
+    dbAsync.get(sql, params).then(res => {
+      if (callback) callback(null, res);
+    }).catch(err => {
+      if (callback) callback(err);
     });
-  }),
-  run: (sql, params = []) => new Promise((resolve, reject) => {
-    // using function(err) to retain 'this' binding (this.lastID, this.changes)
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
+  },
+  all: (sql, params, callback) => {
+    dbAsync.all(sql, params).then(res => {
+      if (callback) callback(null, res);
+    }).catch(err => {
+      if (callback) callback(err);
     });
-  }),
+  },
+  serialize: (callback) => {
+    callback();
+  }
 };
 
 module.exports = { db, dbAsync };

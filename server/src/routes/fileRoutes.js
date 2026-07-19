@@ -87,31 +87,32 @@ router.post('/upload/me', sessionAuth, upload.array('files', 10), async (req, re
                 const { result, resourceType } = await uploadToCloudinary(file.buffer, file.originalname);
                 const fileId = uuidv4();
 
-                await dbAsync.run(
-                    `INSERT INTO Files (id, uploadSessionId, cloudinaryPublicId, fileUrl, fileName, resourceType, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [fileId, uploadSessionId, result.public_id, result.secure_url, file.originalname, resourceType, 'pending']
-                );
+                const { fileRecord, messageRecord } = await dbAsync.transaction(async () => {
+                    const fileRec = await dbAsync.get(
+                        `INSERT INTO Files (id, uploadSessionId, cloudinaryPublicId, fileUrl, fileName, resourceType, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+                        [fileId, uploadSessionId, result.public_id, result.secure_url, file.originalname, resourceType, 'pending']
+                    );
 
-                const fileRecord = await dbAsync.get('SELECT * FROM Files WHERE id = ?', [fileId]);
+                    const messageId = uuidv4();
+                    const fileMessageContent = JSON.stringify({
+                        fileId: fileRec.id,
+                        fileName: fileRec.fileName,
+                        fileUrl: fileRec.fileUrl
+                    });
+                    const msgRec = await dbAsync.get(
+                        'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?) RETURNING *',
+                        [messageId, uploadSessionId, 'customer', 'file', fileMessageContent]
+                    );
+
+                    return { fileRecord: fileRec, messageRecord: msgRec };
+                });
+
                 uploadedRecords.push(fileRecord);
 
                 // Broadcast new file to session and shop owners
                 const { emitToSessionAndShop } = require('../socket');
                 await emitToSessionAndShop(uploadSessionId, 'newFile', fileRecord);
-
-                // Also create a Message record for this file to display in chat
-                const messageId = uuidv4();
-                const fileMessageContent = JSON.stringify({
-                    fileId: fileRecord.id,
-                    fileName: fileRecord.fileName,
-                    fileUrl: fileRecord.fileUrl
-                });
-                await dbAsync.run(
-                    'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?)',
-                    [messageId, uploadSessionId, 'customer', 'file', fileMessageContent]
-                );
-                const messageRecord = await dbAsync.get('SELECT * FROM Messages WHERE id = ?', [messageId]);
                 await emitToSessionAndShop(uploadSessionId, 'newMessage', messageRecord);
             } catch (uploadError) {
                 console.error('Error uploading file to cloudinary:', uploadError);
@@ -190,8 +191,7 @@ router.get('/:id/download', ownerAuth, async (req, res) => {
 
 router.patch('/:id/printed', ownerAuth, async (req, res) => {
     try {
-        await dbAsync.run('UPDATE Files SET status = ? WHERE id = ?', ['printed', req.params.id]);
-        const file = await dbAsync.get('SELECT * FROM Files WHERE id = ?', [req.params.id]);
+        const file = await dbAsync.get('UPDATE Files SET status = ? WHERE id = ? RETURNING *', ['printed', req.params.id]);
         res.json(file);
     } catch (error) {
         console.error(error);

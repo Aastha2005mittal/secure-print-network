@@ -27,16 +27,20 @@ router.post('/create', async (req, res) => {
             if (!existing) break;
         }
 
-        await dbAsync.run(
-            'INSERT INTO Shops (id, name, uniqueCode, ownerEmail, ownerPassword) VALUES (?, ?, ?, ?, ?)',
-            [shopId, name, uniqueCode, ownerEmail, hashedPassword]
-        );
+        const shop = await dbAsync.transaction(async () => {
+            const shopResult = await dbAsync.get(
+                'INSERT INTO Shops (id, name, uniqueCode, ownerEmail, ownerPassword) VALUES (?, ?, ?, ?, ?) RETURNING id, name, uniqueCode, ownerEmail, createdAt',
+                [shopId, name, uniqueCode, ownerEmail, hashedPassword]
+            );
 
-        const roomId = uuidv4();
-        await dbAsync.run(
-            'INSERT INTO Rooms (id, shopId) VALUES (?, ?)',
-            [roomId, shopId]
-        );
+            const roomId = uuidv4();
+            await dbAsync.run(
+                'INSERT INTO Rooms (id, shopId) VALUES (?, ?)',
+                [roomId, shopId]
+            );
+
+            return shopResult;
+        });
 
         const jwt = require('jsonwebtoken');
         const token = jwt.sign(
@@ -44,7 +48,6 @@ router.post('/create', async (req, res) => {
             process.env.JWT_SECRET || 'secret'
         );
 
-        const shop = await dbAsync.get('SELECT id, name, uniqueCode, ownerEmail, createdAt FROM Shops WHERE id = ?', [shopId]);
         return res.status(201).json({ access_token: token, shop });
     } catch (error) {
         console.error(error);

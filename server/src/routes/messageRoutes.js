@@ -24,12 +24,10 @@ router.post('/me', sessionAuth, async (req, res) => {
         const uploadSessionId = req.user.uploadSessionId;
         const messageId = uuidv4();
 
-        await dbAsync.run(
-            'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?)',
+        const message = await dbAsync.get(
+            'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?) RETURNING *',
             [messageId, uploadSessionId, 'customer', 'text', content]
         );
-
-        const message = await dbAsync.get('SELECT * FROM Messages WHERE id = ?', [messageId]);
 
         // Broadcast via socket.io
         await emitToSessionAndShop(uploadSessionId, 'newMessage', message);
@@ -60,12 +58,10 @@ router.post('/session/:id', ownerAuth, async (req, res) => {
         const uploadSessionId = req.params.id;
         const messageId = uuidv4();
 
-        await dbAsync.run(
-            'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?)',
+        const message = await dbAsync.get(
+            'INSERT INTO Messages (id, uploadSessionId, senderType, messageType, content) VALUES (?, ?, ?, ?, ?) RETURNING *',
             [messageId, uploadSessionId, 'owner', 'text', content]
         );
-
-        const message = await dbAsync.get('SELECT * FROM Messages WHERE id = ?', [messageId]);
 
         // Broadcast via socket.io
         await emitToSessionAndShop(uploadSessionId, 'newMessage', message);
